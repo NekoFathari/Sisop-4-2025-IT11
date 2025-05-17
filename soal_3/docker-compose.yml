@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  antink-server:
+    build: .
+    container_name: antink-server
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    privileged: true
+    volumes:
+      - ./it24__host:/it24__host
+      - ./antink__mount:/antink__mount
+      - ./antink-logs:/var/log
+    command: sh -c "touch /var/log/it24.log && chmod 666 /var/log/it24.log && /app/antink /antink__mount"
+    restart: unless-stopped
+
+  antink-logger:
+    image: alpine
+    container_name: antink-logger
+    command: sh -c "while [ ! -f /var/log/it24.log ]; do sleep 1; done && tail -f /var/log/it24.log"
+    volumes:
+      - ./antink-logs:/var/log
+    depends_on:
+      - antink-server
+    restart: unless-stopped
