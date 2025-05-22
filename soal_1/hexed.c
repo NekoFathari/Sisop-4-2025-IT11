@@ -57,40 +57,44 @@ static void fs_clear_image(){
 
     // hapus logging di foldernya
     char lokasi_log[256] = "";
-    strcat(lokasi_log, buat_gambar);
-    strcat(lokasi_log, "/log.txt");
-    if (unlink(lokasi_log) == 0) {
-        printf("Deleted log file: %s\n", lokasi_log);
+    strcat(lokasi_log, "/home/fathari/ITS/Code/SISOP/MODUL_4/soal_1/anomali");
+    strcat(lokasi_log, "/conversion.log");
+    if (access(lokasi_log, F_OK) == 0) {
+        if (unlink(lokasi_log) == 0) {
+            printf("Deleted log file: %s\n", lokasi_log);
+        } else {
+            perror("Failed to delete log file");
+        }
     } else {
-        perror("Failed to delete log file");
+        // file tidak ada sebelumya
+        printf("Log file does not exist: %s\n", lokasi_log);
     }
 } 
 
 // convert dari heximal ke png
 static void fs_converter(const char *textny_dimana, const char *textny_dituju) {
-    FILE *file = fopen(textny_dimana, "r");
-    if (file == NULL) {
-        perror("Failed to open file");
-        return;
-    }
-
-    FILE *output = fopen(textny_dituju, "wb");
-    if (output == NULL) {
-        perror("Failed to open output file");
-        fclose(file);
-        return;
-    }
-
-    char buffer[2];
-    while (fgets(buffer, sizeof(buffer), file) != NULL) {
-        if (buffer[0] == '\n' || buffer[0] == '\r' || buffer[0] == '\0') { 
-            continue; 
+    FILE *file, *output;
+    if ((file = fopen(textny_dimana, "r")) != NULL) {
+        if ((output = fopen(textny_dituju, "wb")) == NULL) {
+            perror("Failed to open output file");
+            fclose(file);
+            return;
         }
-        unsigned char byte = (unsigned char)strtol(buffer, NULL, 16);
-        fputc(byte, output);
+
+        char buffer[2];
+        while (fgets(buffer, sizeof(buffer), file) != NULL) {
+            if (buffer[0] == '\n' || buffer[0] == '\r' || buffer[0] == '\0') { 
+                continue; 
+            }
+            unsigned char byte = (unsigned char)strtol(buffer, NULL, 16);
+            fputc(byte, output);
+        }
+        fclose(file);
+        fclose(output);
+    } else {
+        perror("Failed to open input file");
+        return;
     }
-    fclose(file);
-    fclose(output);
 }
 
 static int fs_getattr(const char *path, struct stat *stbuf) {
@@ -205,7 +209,6 @@ static int fs_readdir(const char *lokasi, void *buf, fuse_fill_dir_t filler, off
     
     } else if (strcmp(lokasi, "/image") == 0) {
         // cek image dir ada ga
-        fs_clear_image();
         DIR *dir_gambar;
         if (access(buat_gambar, F_OK) == 0) {
             dir_gambar = opendir(buat_gambar);
