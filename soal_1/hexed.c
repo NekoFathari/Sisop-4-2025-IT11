@@ -354,11 +354,11 @@ int main(int argc, char *argv[]) {
             // Fork for hexed
             pid_t pid_hexed = fork();
             if (pid_hexed == 0) {
-                // Child process for hexed
-                const char *args_hexed[] = {"./hexed", NULL};
-                if (execvp(args_hexed[0], (char *const *)args_hexed) == -1) {
-                perror("execvp failed (hexed)");
-                exit(EXIT_FAILURE);
+                // Child process for removing anomali.zip
+                const char *args_rm[] = {"rm", "anomali.zip", NULL};
+                if (execvp(args_rm[0], (char *const *)args_rm) == -1) {
+                    perror("execvp failed (rm)");
+                    exit(EXIT_FAILURE);
                 }
             } else if (pid_hexed < 0) {
                 perror("Fork failed (hexed)");
