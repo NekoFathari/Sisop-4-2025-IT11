@@ -387,3 +387,192 @@ e. Hasil dari activity.log
 
 
 ### SOAL 3
+Sistem AntINK dirancang untuk mendeteksi dan menangani file-file berbahaya yang mengandung kata kunci "nafis" atau "kimcun". Sistem ini terdiri dari dua container Docker yang berjalan secara terpisah:
+
+antink-server: Container yang menjalankan sistem file FUSE untuk memantau dan memodifikasi tampilan file
+
+antink-logger: Container yang memantau log secara real-time
+
+ini untuk fungsi ROT 13
+```
+/ ROT13
+void rot13(char *str) {
+    for (int i = 0; str[i]; i++) {
+        if ('a' <= str[i] && str[i] <= 'z')
+            str[i] = ((str[i] - 'a' + 13) % 26) + 'a';
+        else if ('A' <= str[i] && str[i] <= 'Z')
+            str[i] = ((str[i] - 'A' + 13) % 26) + 'A';
+    }
+}
+
+```
+ini fungsi logging 
+```
+void write_log(const char *msg) {
+    FILE *log = fopen(log_file, "a");
+    if (log) {
+        time_t t = time(NULL);
+        struct tm *tm = localtime(&t);
+        fprintf(log, "[%02d:%02d:%02d] %s\n", tm->tm_hour, tm->tm_min, tm->tm_sec, msg);
+        fclose(log);
+    }
+}
+
+void full_path(char *fpath, const char *path) {
+    sprintf(fpath, "%s%s", real_dir, path);
+}
+
+int is_dangerous(const char *name) {
+    return strstr(name, "nafis") || strstr(name, "kimcun");
+}
+
+```
+ini fungsi FUSE 
+```
+static int antink_getattr(const char *path, struct stat *stbuf) {
+    char fpath[1024];
+    full_path(fpath, path);
+    return lstat(fpath, stbuf);
+}
+
+static int antink_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
+    DIR *dp;
+    struct dirent *de;
+    char fpath[1024];
+    full_path(fpath, path);
+
+    dp = opendir(fpath);
+    if (dp == NULL) return -errno;
+
+    filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);
+
+    while ((de = readdir(dp)) != NULL) {
+        char *fname = strdup(de->d_name);
+        if (is_dangerous(fname)) {
+            // balik nama
+            int len = strlen(fname);
+            for (int i = 0; i < len / 2; i++) {
+                char temp = fname[i];
+                fname[i] = fname[len - i - 1];
+                fname[len - i - 1] = temp;
+            }
+            write_log("File berbahaya terdeteksi saat readdir");
+        }
+        filler(buf, fname, NULL, 0);
+        free(fname);
+    }
+
+    closedir(dp);
+    return 0;
+}
+
+static int antink_open(const char *path, struct fuse_file_info *fi) {
+    char fpath[1024];
+    full_path(fpath, path);
+    write_log("Membuka file");
+    int res = open(fpath, fi->flags);
+    if (res == -1) return -errno;
+    close(res);
+    return 0;
+}
+
+static int antink_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
+    int fd;
+    int res;
+    char fpath[1024];
+    full_path(fpath, path);
+    fd = open(fpath, O_RDONLY);
+    if (fd == -1) return -errno;
+
+    res = pread(fd, buf, size, offset);
+    if (res == -1) res = -errno;
+    else {
+        if (!is_dangerous(path) && strstr(path, ".txt"))
+            rot13(buf);
+    }
+
+    close(fd);
+    write_log("Membaca file");
+    return res;
+}
+
+static struct fuse_operations antink_oper = {
+    .getattr = antink_getattr,
+    .readdir = antink_readdir,
+    .open    = antink_open,
+    .read    = antink_read,
+};
+
+int main(int argc, char *argv[]) {
+    return fuse_main(argc, argv, &antink_oper, NULL);
+}
+```
+###Dockerfile
+File ini berisi instruksi untuk membangun image Docker yang akan menjalankan sistem FUSE.
+```
+FROM debian:bullseye  # Base image OS Debian Bullseye
+
+# Install dependensi
+RUN apt-get update && \
+    apt-get install -y gcc fuse libfuse-dev pkg-config && \  # Install compiler & library FUSE
+    mkdir -p /it24_host /antink_mount /antink-logs /var/log  # Buat direktori penting
+
+# Copy source code FUSE
+COPY antink.c /antink.c  # Salin file C ke container
+
+# Compile program
+RUN gcc /antink.c -o /antink -D_FILE_OFFSET_BITS=64 $(pkg-config fuse --cflags --libs)
+
+# Persiapan log
+RUN touch /var/log/it24.log  # Buat file log
+
+# Perintah saat container dijalankan
+CMD ["/antink", "-f", "/antink_mount"]  # Mount FUSE ke /antink_mount
+```
+file ini berfungsi sebagai pembangun environment untuk menjalankan FUSE, menginstall dependensi seperti gcc dan libfuse-dev juga sebagai pengompilasi program antink.c 
+
+###docker-compose.yml
+```
+version: '3.8'
+
+services:
+  antink-server:  # Container untuk FUSE
+    build: .  # Build image dari Dockerfile di direktori saat ini
+    container_name: antink-server  # Nama container
+    cap_add:
+      - SYS_ADMIN  # Tambahkan capability untuk operasi FUSE
+    devices:
+      - /dev/fuse  # Akses ke device FUSE
+    security_opt:
+      - apparmor:unconfined  # Nonaktifkan AppArmor untuk akses penuh
+    privileged: true  # Mode privileged (diperlukan FUSE)
+    volumes:
+      - ./it24_host:/it24_host  # Bind mount direktori host ke container
+      - ./antink_mount:/antink_mount  # Mount point FUSE
+      - ./antink-logs:/var/log  # Simpan log di host
+
+  antink-logger:  # Container untuk monitoring log
+    depends_on:
+      - antink-server  # Jalankan setelah antink-server ready
+    image: debian:bullseye  # Gunakan image Debian
+    container_name: antink-logger
+    volumes:
+      - ./antink-logs:/var/log  # Share volume log dengan antink-server
+    command: >
+      sh -c "touch /var/log/it24.log && tail -f /var/log/it24.log"  # Monitor log real-time
+```
+File ini mengatur orchestration multi-container, termasuk konfigurasi volume, privilege, dan dependensi antar-container.
+### REVISI
+-merevisi bagian docker-compose.yml
+```
+ volumes:
+      - ./it24_host:/it24_host
+      - ./antink_mount:/antink_mount
+      - ./antink-logs:/var/log
+
+ command: >
+      sh -c "touch /var/log/it24.log && tail -f /var/log/it24.log"
+
+
+```
