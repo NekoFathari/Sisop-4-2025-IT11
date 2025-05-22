@@ -154,6 +154,25 @@ if (log_file != NULL) {
 }
 ```
 
+REVISI SECTION
+hexed.c BEFORE
+```
+// Child process for hexed
+const char *args_hexed[] = {"./hexed", NULL};
+if (execvp(args_hexed[0], (char *const *)args_hexed) == -1) {
+perror("execvp failed (hexed)");
+exit(EXIT_FAILURE);
+}
+```
 
+hexed.c AFTER
+```
+// Child process for removing anomali.zip
+const char *args_rm[] = {"rm", "anomali.zip", NULL};
+if (execvp(args_rm[0], (char *const *)args_rm) == -1) {
+    perror("execvp failed (rm)");
+    exit(EXIT_FAILURE);
+}
+```
 ### SOAL 2
 ### SOAL 3
