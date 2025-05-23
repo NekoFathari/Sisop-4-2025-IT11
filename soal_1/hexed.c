@@ -57,8 +57,7 @@ static void fs_clear_image(){
 
     // hapus logging di foldernya
     char lokasi_log[256] = "";
-    strcat(lokasi_log, "/home/fathari/ITS/Code/SISOP/MODUL_4/soal_1/anomali");
-    strcat(lokasi_log, "/conversion.log");
+    strcat(lokasi_log, "/home/fathari/ITS/Code/SISOP/MODUL_4/soal_1/anomali/conversion.log");
     if (access(lokasi_log, F_OK) == 0) {
         if (unlink(lokasi_log) == 0) {
             printf("Deleted log file: %s\n", lokasi_log);
@@ -80,7 +79,6 @@ static void fs_converter(const char *textny_dimana, const char *textny_dituju) {
             fclose(file);
             return;
         }
-
         char buffer[2];
         while (fgets(buffer, sizeof(buffer), file) != NULL) {
             if (buffer[0] == '\n' || buffer[0] == '\r' || buffer[0] == '\0') { 
@@ -142,41 +140,41 @@ static void fs_qc_duluges(const char *basisnya){
             perror("Failed to open directory");
             return;
         }
+        char keluar_yg_diharapkan[100];
+        sprintf(keluar_yg_diharapkan, "%s_image_", sumber);
+        for (int i = 0; i < 100; i++) {
+            if (strncmp(keluar_yg_diharapkan, sumber, strlen(keluar_yg_diharapkan)) == 0) {
+                // kita ambil file textnya
+                char *file = readdir(direktoriwak)->d_name;
+                if (strcmp(file, ".") != 0 && strcmp(file, "..") != 0) {
+                    char lokasi_filenya[256];
+                    snprintf(lokasi_filenya, sizeof(lokasi_filenya), "%s/%s", sumber, file);
+                    time_t now = time(NULL);
+                    struct tm *t = localtime(&now);
+                    char waktu[100];
+                    strftime(waktu, sizeof(waktu), "%Y-%m-%d_%H:%M:%S", t);
+                    // kita convert ke png
+                    char png[256];
+                    snprintf(png, sizeof(png), "%s/%s_image_%s_%s.png", buat_gambar, file, file, waktu);
+                    fs_converter(lokasi_filenya, png);
+    
+                    // kita logging
+                    FILE *log_file = fopen(path_log, "a");
+    
+                    if (log_file != NULL) {
+                        fprintf(log_file, "[%s]: Successfully converted hexadecimal text %s to %s.\n", waktu, file, strrchr(png, '/') + 1);
+                        fclose(log_file);
+                    } else {
+                        perror("Failed to open log file");
+                    }
+                }
+            }
+        }
+        closedir(direktoriwak);
     } else {
         perror("File does not exist");
         return;
     }
-    char keluar_yg_diharapkan[100];
-    sprintf(keluar_yg_diharapkan, "%s_image_", sumber);
-    for (int i = 0; i < 100; i++) {
-        if (strncmp(keluar_yg_diharapkan, sumber, strlen(keluar_yg_diharapkan)) == 0) {
-            // kita ambil file textnya
-            char *file = readdir(direktoriwak)->d_name;
-            if (strcmp(file, ".") != 0 && strcmp(file, "..") != 0) {
-                char lokasi_filenya[256];
-                snprintf(lokasi_filenya, sizeof(lokasi_filenya), "%s/%s", sumber, file);
-                time_t now = time(NULL);
-                struct tm *t = localtime(&now);
-                char waktu[100];
-                strftime(waktu, sizeof(waktu), "%Y-%m-%d_%H:%M:%S", t);
-                // kita convert ke png
-                char png[256];
-                snprintf(png, sizeof(png), "%s/%s_image_%s_%s.png", buat_gambar, file, file, waktu);
-                fs_converter(lokasi_filenya, png);
-
-                // kita logging
-                FILE *log_file = fopen(path_log, "a");
-
-                if (log_file != NULL) {
-                    fprintf(log_file, "[%s]: Successfully converted hexadecimal text %s to %s.\n", waktu, file, strrchr(png, '/') + 1);
-                    fclose(log_file);
-                } else {
-                    perror("Failed to open log file");
-                }
-            }
-        }
-    }
-    closedir(direktoriwak);
 }
 
 static int fs_readdir(const char *lokasi, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi) {
@@ -211,31 +209,30 @@ static int fs_readdir(const char *lokasi, void *buf, fuse_fill_dir_t filler, off
         // cek image dir ada ga
         DIR *dir_gambar;
         if (access(buat_gambar, F_OK) == 0) {
-            dir_gambar = opendir(buat_gambar);
-            if (dir_gambar == NULL) return -errno;
-        } else {
-            return -ENOENT;
-        }
-        struct dirent *de;
-        DIR *dir;
-        if(access(sumber, F_OK) == 0) {
-            if((dir = opendir(sumber)) == NULL){
-                return -errno;
+            if ((dir_gambar = opendir(buat_gambar)) == NULL) return -errno;
+            struct dirent *de;
+            DIR *dir;
+            if(access(sumber, F_OK) == 0) {
+                if((dir = opendir(sumber)) == NULL){
+                    return -errno;
+                }
+                while ((de = readdir(dir)) != NULL) {
+                    if (de->d_type == DT_REG && strstr(de->d_name, ".txt")) {
+                        char *file = de->d_name;
+                        char lokasi_filenya[256];
+                        snprintf(lokasi_filenya, sizeof(lokasi_filenya), "%s/%s", sumber, file);
+                        fs_qc_duluges(file);
+                        filler(buf, file, NULL, 0);
+                    }
+                }
+                closedir(dir);
+                return 0;
+            } else {
+                return -ENOENT;
             }
         } else {
             return -ENOENT;
         }
-        while ((de = readdir(dir)) != NULL) {
-            if (de->d_type == DT_REG && strstr(de->d_name, ".txt")) {
-                char *file = de->d_name;
-                char lokasi_filenya[256];
-                snprintf(lokasi_filenya, sizeof(lokasi_filenya), "%s/%s", sumber, file);
-                fs_qc_duluges(file);
-                filler(buf, file, NULL, 0);
-            }
-        }
-        closedir(dir);
-        return 0;
     }
     return -ENOENT;
 }
@@ -264,19 +261,18 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset, struc
         if (lihat == -1) {
             return -errno;
         }
+            // kita baca isi filenya
+        lseek(lihat, offset, SEEK_SET);
+        int retired = read(lihat, buf, size);
+        if (retired == -1) {
+            return -errno;
+        }
+    
+        close(lihat);
+        return retired;
     } else {
         return -ENOENT;
     }
-    // kita baca isi filenya
-    lseek(lihat, offset, SEEK_SET);
-    int retired = read(lihat, buf, size);
-    if (retired == -1) {
-        return -errno;
-    }
-
-    close(lihat);
-    return retired;
-
 }
 static int fs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
     sprintf(sumber, "%s%s", sumber, path);
@@ -286,20 +282,28 @@ static int fs_write(const char *path, const char *buf, size_t size, off_t offset
         if (fd == -1) {
             return -errno;
         }
+        lseek(fd, offset, SEEK_SET);
+        ssize_t written = write(fd, buf, size);
+        close(fd);
+        
+        if (written < 0) {
+            return -errno;
+        }
+        return written;
     } else {
         fd = open(sumber, O_WRONLY | O_CREAT, 0644);
         if (fd == -1) {
             return -errno;
         }
+        lseek(fd, offset, SEEK_SET);
+        ssize_t written = write(fd, buf, size);
+        close(fd);
+        
+        if (written < 0) {
+            return -errno;
+        }
+        return written;
     }   
-    lseek(fd, offset, SEEK_SET);
-    ssize_t written = write(fd, buf, size);
-    close(fd);
-    
-    if (written < 0) {
-        return -errno;
-    }
-    return written;
 }
 
 static struct fuse_operations ops = {
